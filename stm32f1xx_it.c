@@ -29,7 +29,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f1xx_it.h"
-
+#include <stdbool.h>
 /** @addtogroup IO_Toggle
   * @{
   */
@@ -40,6 +40,18 @@
 /* Private variables ---------------------------------------------------------*/
 extern uint8_t TimerState;
 extern uint32_t count;
+extern uint8_t DisplayState;
+uint32_t TickCount = 0;
+uint32_t DebPeriod1, DebPeriod2 = 0;
+uint8_t PBState1, PBState2 = 0;
+
+
+/*  XXX
+ *  count - Timer do RTC, usado para contador dos minutos
+ *  TickCount, Debperiod1/2 - contador do SysTick e tempo de Debounce dos botões
+ *  PBState1/2 - controle da interrupção (Debounce)
+ */
+
 /* Private function prototypes -----------------------------------------------*/
 /* Private functions ---------------------------------------------------------*/
 
@@ -142,6 +154,37 @@ void PendSV_Handler(void)
   */
 void SysTick_Handler(void)
 {
+	TickCount = TickCount + 1;
+
+	/* Multiplexação dos Displays - taxa de atualização de 100Hz */
+
+	if(TickCount % 10 == 0)
+	{
+		switch (DisplayState)
+		{
+				case 0:
+					DisplayState = 1;
+					break;
+				case 1:
+					DisplayState = 0;
+					break;
+				default:
+					break;
+		}
+	}
+
+	/* Debounce dos Botões de Ajuste (200ms) */
+
+	if(TickCount - DebPeriod1 > 200)
+	{
+		PBState1 = 0;
+		DebPeriod1 = 0;
+	}
+	if(TickCount - DebPeriod2 > 200)
+	{
+		PBState2 = 0;
+		DebPeriod2 = 0;
+	}
 }
 
 /******************************************************************************/
@@ -165,6 +208,7 @@ void RTC_IRQHandler(void)
 
 		if(count > 0)
 		{
+			/* Pisca o Led a cada 1seg para indicar contagem ativa */
 			GPIO_WriteBit(GPIOB, GPIO_Pin_8, GPIO_ReadOutputDataBit(GPIOB, GPIO_Pin_8)^1);
 			count = count - 1;
 		}
@@ -196,7 +240,7 @@ void EXTI0_IRQHandler(void)
 			TimerState = 1;
 			break;
 		default:
-			/* Tratamento de exceção (desnecessário?) */
+			/* Tratamento de exceção */
 			break;
 	}
 	EXTI_ClearITPendingBit(EXTI_Line0);
@@ -204,9 +248,11 @@ void EXTI0_IRQHandler(void)
 
 void EXTI1_IRQHandler(void)
 {
-	/* BotUP: Incrementa o número de minutos do timer */
-	if(TimerState == 0)
+	/* BotUP: Incrementa o número de minutos do timer. */
+	if((TimerState == 0) && (PBState1 == 0))
 	{
+		DebPeriod1 = TickCount;
+		PBState1 = 1;
 		if(count < (99 * 60))
 		{
 			count = count + 60;
@@ -218,13 +264,14 @@ void EXTI1_IRQHandler(void)
 void EXTI3_IRQHandler(void)
 {
 	/* BotDOWN: Decrementa o número de minutos do timer */
-	if(TimerState == 0)
+	if((TimerState == 0) && (PBState2 == 0))
 	{
+		DebPeriod2 = TickCount;
+		PBState2 = 1;
 		if(count > 60)
 		{
 			count = count - 60;
 		}
-		GPIO_SetBits(GPIOB, GPIO_Pin_9);
 	}
 	EXTI_ClearITPendingBit(EXTI_Line3);
 }
