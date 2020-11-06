@@ -1,3 +1,5 @@
+/* QuestÃ£o 2 - Displays 7-Segmentos Multiplexados */
+
 /* Includes */
 #include "stm32f10x.h"
 /* Private typedef */
@@ -5,43 +7,55 @@
 /* Private macro */
 /* Private variables */
 volatile uint8_t TimerState = 0;
-volatile uint8_t Toggle = 0;
+volatile uint8_t DisplayState = 0;
 uint8_t ProgramError = 0;
 
-/* variáveis Granzi (pode excluir que vai continuar funcionando) XXX */
-/* Tabela começa com dígito 1, 2,...9, 0 */
-const uint16_t TabDig[10] = {0b0111111, 0b0010100, 0b1011011, 0b1011110, 0b1110100, 0b1101110,
-		                    0b1101111, 0b0011100, 0b1111111, 0b1111110};
-const uint16_t TabDigDez[10] = {0b100111101, 0b000010001, 0b100111010, 0b100011011, 0b000010111, 0b100001111,
-        0b100101111, 0b000011001, 0b100111111, 0b100011111};
+const uint16_t TabDigNew[10] = {0b01111110, 0b00001100, 0b10110110, 0b10011110, 0b11001100, 0b11011010,
+		0b11111010, 0b00001110, 0b11111110, 0b11011110};
+
+const uint16_t FimdaContagem = {0b10000000};
 
 volatile uint16_t digUnid = 0, digDez = 0;
 volatile uint32_t count = 0;
 
-/* end Granzi XXX */
+/* Pinagem:
+ * PA0-PA7: Displays
+ * PA0: (-)
+ * PA1: a
+ * PA2: b
+ * PA3: c
+ * PA4: d
+ * PA5: e
+ * PA6: f
+ * PA7: g
+ * PB4: Q2 (Unidade)
+ * PB6: Q1 (Dezena)
+ * PB7-PB9: Leds
+ */
 
 /* Private function prototypes */
 void Button_Configuration(void);
 void Display_Unidade_Configuration(void);
-void Display_Dezena_Configuration(void);
 void Leds_Configuration(void);
 void SysTick_Configuration(void);
 void RTC_Configuration(void);
 void Delay(uint16_t k);
+void Transistor_Ports(void);
+
 /* Private functions */
 void Button_Configuration(void)
 {
-	/* Botões:
+	/* BotÃµes:
 	 * PB0: Altera os estados do timer
-	 * PB1: BotUP - incrementa minutos (só ativo na configuração do timer).
-	 * PB10: BotDOWN - decrementa minutos (só ativo na configuração do timer).
+	 * PB1: BotUP - incrementa minutos (sÃ³ ativo na configuraÃ§Ã£o do timer).
+	 * PB3: BotDOWN - decrementa minutos (sÃ³ ativo na configuraÃ§Ã£o do timer).
 	*/
 
 	/* Clocks */
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
 
-	/* Configuração das Portas */
+	/* ConfiguraÃ§Ã£o das Portas */
 	GPIO_InitTypeDef myButton;
 
 	myButton.GPIO_Mode = GPIO_Mode_IPD;
@@ -63,7 +77,7 @@ void Button_Configuration(void)
 	myEXTI.EXTI_LineCmd = ENABLE;
 	EXTI_Init(&myEXTI);
 
-	/* Interrupções associadas aos botões - NVIC */
+	/* InterrupÃ§Ãµes associadas aos botÃµes - NVIC */
 	NVIC_InitTypeDef myIntButton;
 
 	/* PB0 */
@@ -80,7 +94,7 @@ void Button_Configuration(void)
 	myIntButton.NVIC_IRQChannelCmd = ENABLE;
 	NVIC_Init(&myIntButton);
 
-	/* PB10 */
+	/* PB3 */
 	myIntButton.NVIC_IRQChannel = EXTI3_IRQn;
 	myIntButton.NVIC_IRQChannelPreemptionPriority = 3;
 	myIntButton.NVIC_IRQChannelSubPriority = 3;
@@ -92,28 +106,10 @@ void Display_Unidade_Configuration(void)
 {
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
 
-	/* XXX Configurar ordem! */
 	GPIO_InitTypeDef myDisplay;
 
 	myDisplay.GPIO_Mode = GPIO_Mode_Out_PP;
-	//myDisplay.GPIO_Pin = GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_3 | GPIO_Pin_4 | GPIO_Pin_5 | GPIO_Pin_6;
 	myDisplay.GPIO_Pin = GPIO_Pin_All;
-	myDisplay.GPIO_Speed = GPIO_Speed_2MHz;
-
-	GPIO_PinRemapConfig(GPIO_Remap_SWJ_JTAGDisable, ENABLE);
-
-	GPIO_Init(GPIOA, &myDisplay);
-}
-
-void Display_Dezena_Configuration(void)
-{
-	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
-
-	/* XXX Configurar ordem! */
-	GPIO_InitTypeDef myDisplay;
-
-	myDisplay.GPIO_Mode = GPIO_Mode_Out_PP;
-	myDisplay.GPIO_Pin = GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_9 | GPIO_Pin_10 | GPIO_Pin_11 | GPIO_Pin_12 | GPIO_Pin_15;
 	myDisplay.GPIO_Speed = GPIO_Speed_2MHz;
 
 	GPIO_PinRemapConfig(GPIO_Remap_SWJ_JTAGDisable, ENABLE);
@@ -123,14 +119,14 @@ void Display_Dezena_Configuration(void)
 
 void Leds_Configuration(void)
 {
-	/* Configuração das Portas */
+	/* ConfiguraÃ§Ã£o das Portas */
 
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
 
 	GPIO_InitTypeDef myLed;
 
 	myLed.GPIO_Mode = GPIO_Mode_Out_PP;
-	myLed.GPIO_Pin = GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_9;
+	myLed.GPIO_Pin = GPIO_Pin_7 | GPIO_Pin_8;
 	myLed.GPIO_Speed = GPIO_Speed_2MHz;
 
 	GPIO_Init(GPIOB, &myLed);
@@ -138,14 +134,15 @@ void Leds_Configuration(void)
 
 void SysTick_Configuration(void)
 {
-	SysTick_Config(9000000);
+	/* Configurado para interrupÃ§Ãµes de 1ms */
+	SysTick_Config(9000);		/* 1kHz */
 	SysTick_CLKSourceConfig(SysTick_CLKSource_HCLK_Div8);
 
 	NVIC_InitTypeDef mySystick;
 
 	mySystick.NVIC_IRQChannel = SysTick_IRQn;
-	mySystick.NVIC_IRQChannelPreemptionPriority = 1;
-	mySystick.NVIC_IRQChannelSubPriority = 1;
+	mySystick.NVIC_IRQChannelPreemptionPriority = 0;
+	mySystick.NVIC_IRQChannelSubPriority = 0;
 	mySystick.NVIC_IRQChannelCmd = ENABLE;
 
 	NVIC_Init(&mySystick);
@@ -201,13 +198,29 @@ void Delay(uint16_t k)
 	}
 }
 
+void Transistor_Ports(void)
+{
+	/* ConfiguraÃ§Ã£o das Portas do Transistor */
+
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+
+	GPIO_InitTypeDef myLed;
+
+	myLed.GPIO_Mode = GPIO_Mode_Out_PP;
+	myLed.GPIO_Pin = GPIO_Pin_4 | GPIO_Pin_6;
+	myLed.GPIO_Speed = GPIO_Speed_2MHz;
+
+	GPIO_Init(GPIOB, &myLed);
+}
+
 int main(void)
 {
-	/* Usar funções já declaradas no escopo! */
+	/* Usar funÃ§Ãµes jÃ¡ declaradas no escopo! */
 	__disable_irq();
 	Button_Configuration();
 	Display_Unidade_Configuration();
 	Leds_Configuration();
+	Transistor_Ports();
 	SysTick_Configuration();
 	RTC_Configuration();
 	__enable_irq();
@@ -216,18 +229,17 @@ int main(void)
 	while (1)
 	{
 		/* 3 Estados do timer:
-		 * 0: Default, para configuração do tempo.
-		 * 1: Timer ativo, decrementando
-		 * 2: Timer pausado
+		 * 0: Modo de configuraÃ§Ã£o, botUP e botDOWN ativos.
+		 * 1: Timer ativo, decrementando.
+		 * 2: Timer pausado.
 		 */
 
 		switch (TimerState)
 		{
 			case 0:
-				/* Configuração do Timer. */
+				/* ConfiguraÃ§Ã£o do Timer. */
 				GPIO_ResetBits(GPIOB, GPIO_Pin_7);
 				GPIO_ResetBits(GPIOB, GPIO_Pin_8);
-				GPIO_ResetBits(GPIOB, GPIO_Pin_9);
 				break;
 
 			case 1:
@@ -236,7 +248,6 @@ int main(void)
 				{
 					GPIO_SetBits(GPIOB, GPIO_Pin_7);
 					GPIO_SetBits(GPIOB, GPIO_Pin_8);
-					GPIO_ResetBits(GPIOB, GPIO_Pin_9);
 				}
 				else
 				{
@@ -249,21 +260,17 @@ int main(void)
 				/* Timer Pausado. */
 				GPIO_ResetBits(GPIOB, GPIO_Pin_7);
 				GPIO_ResetBits(GPIOB, GPIO_Pin_8);
-				GPIO_ResetBits(GPIOB, GPIO_Pin_9);
 				break;
 
 			default:
-				/* Erro - tratamento de exceção (debug) */
-				ProgramError = 99;
-				while(1)
-				{
-				}
 				break;
 		}
 
+		/* ConversÃ£o para dÃ­gitos da Unidade/Dezena de minutos */
 		digUnid = count / 60;
 		digDez = count / 600;
 
+		/* Vetor da tabela de binÃ¡rios vai atÃ© posiÃ§Ã£o 9 apenas! */
 		if(digUnid > 9)
 		{
 			digUnid = digUnid % 10;
@@ -273,6 +280,32 @@ int main(void)
 			digDez = digDez / 10;
 		}
 
-		GPIO_Write(GPIOA, (TabDigDez[digDez] << 7 | TabDig[digUnid]));
+		if(count == 0)
+		{
+			/* Fim de Contagem, imprime risquinhos */
+			GPIO_SetBits(GPIOB, GPIO_Pin_4 |GPIO_Pin_6);
+			GPIO_Write(GPIOA, FimdaContagem << 8 | FimdaContagem);
+		}
+		else
+		{
+			/* Somente enquanto contagem estÃ¡ ativa imprime os valores nos displays */
+			switch (DisplayState)
+			{
+				case 0:
+					GPIO_SetBits(GPIOB, GPIO_Pin_6);
+					GPIO_ResetBits(GPIOB, GPIO_Pin_4);
+					GPIO_Write(GPIOA, (GPIO_ReadOutputData(GPIOA) & 0xFF00) | TabDigNew[digUnid]);
+					break;
+
+				case 1:
+					GPIO_SetBits(GPIOB, GPIO_Pin_4);
+					GPIO_ResetBits(GPIOB, GPIO_Pin_6);
+					GPIO_Write(GPIOA, (GPIO_ReadOutputData(GPIOA) & 0xFF00) | TabDigNew[digDez]);
+					break;
+
+				default:
+					break;
+			}
+		}
   }
 }
